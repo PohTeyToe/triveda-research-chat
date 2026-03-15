@@ -1,44 +1,50 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
+import { RESEARCH_DOCS } from './research-context.js';
 
 const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY,
 });
 
-// TODO: Replace with actual research docs content
-const RESEARCH_CONTEXT = `You are a research assistant for the Triveda product exploration.
-You have access to ~65,000 words of research across 28 documents covering:
-- Product exploration pipeline (original 8 docs, three-traditions 7 docs, challenges 5 docs)
-- The Triveda concept: a three-tradition daily food companion
-- Ayurveda (food lens), TCM (energy lens), Naturopathy (honesty/evidence lens)
-- Constitutional typing, daily food engine, contradiction engine
-- Audience analysis, business model, build timeline
-- Devil's advocate stress tests across all three audiences
+const SYSTEM_PROMPT = `You are Triveda's research assistant — an expert on the entire Triveda product exploration knowledge base (28 documents, ~100K words of research).
 
-Answer questions about the research, the product direction, and the reasoning behind decisions.
-Be specific and cite which document or section you're drawing from when possible.
-If asked about something not covered in the research, say so honestly.`;
+## Your Role
+You help teammates, advisors, and stakeholders understand the Triveda product direction by answering questions grounded in the research documents below.
+
+## Rules
+1. **Ground your answers in the research.** When referencing specific insights, cite the document (e.g., "In the Three-Traditions Synthesis (04-synthesis.md)...").
+2. **Be honest about gaps.** If something isn't covered in the research, say so. Don't fabricate.
+3. **Be concise but thorough.** Give complete answers but don't pad with filler.
+4. **Use markdown formatting** — headers, lists, bold, code blocks — to make answers scannable.
+5. **Maintain the product's voice** — thoughtful, evidence-driven, willing to challenge assumptions.
+
+## Research Documents
+${RESEARCH_DOCS}`;
+
+const MAX_HISTORY = 20;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { message, history } = req.body ?? {};
-  if (!message || typeof message !== 'string') {
-    return res.status(400).json({ error: 'Missing message' });
+  const { messages: rawMessages } = req.body ?? {};
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    return res.status(400).json({ error: 'Missing messages array' });
   }
 
   try {
-    const messages: Anthropic.MessageParam[] = [
-      ...(Array.isArray(history) ? history : []),
-      { role: 'user' as const, content: message },
-    ];
+    const messages: Anthropic.MessageParam[] = rawMessages
+      .slice(-MAX_HISTORY)
+      .map((m: { role: string; content: string }) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: RESEARCH_CONTEXT,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
       messages,
     });
 
@@ -51,6 +57,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('Claude API error:', errorMessage);
+
+    if (errorMessage.includes('rate_limit')) {
+      return res.status(429).json({ error: 'Rate limited — please wait a moment and try again.' });
+    }
+    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+      return res.status(504).json({ error: 'Request timed out — the knowledge base is large, please try again.' });
+    }
+
     return res.status(500).json({ error: 'Failed to get response from Claude' });
   }
 }
