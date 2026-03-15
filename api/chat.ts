@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { RESEARCH_DOCS } from './research-context.js';
 
 const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY,
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 const SYSTEM_PROMPT = `You are Triveda's research assistant — an expert on the entire Triveda product exploration knowledge base (28 documents, ~100K words of research).
