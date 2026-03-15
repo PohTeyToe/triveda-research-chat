@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:context": "npx tsx scripts/build-context.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "npx tsx server.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.76",
     "@anthropic-ai/sdk": "^0.52.0",
     "@tailwindcss/vite": "^4.2.1",
     "framer-motion": "^12.35.1",

@@ -1,10 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { RESEARCH_DOCS } from './research-context.js';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 const SYSTEM_PROMPT = `You are Triveda's research assistant — an expert on the entire Triveda product exploration knowledge base (28 documents, ~100K words of research).
 
@@ -34,37 +30,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const messages: Anthropic.MessageParam[] = rawMessages
-      .slice(-MAX_HISTORY)
-      .map((m: { role: string; content: string }) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      }));
+    // Build conversation as a single prompt string for the SDK
+    const capped = rawMessages.slice(-MAX_HISTORY);
+    const conversationPrompt = capped
+      .map((m: { role: string; content: string }) =>
+        m.role === 'user' ? `User: ${m.content}` : `Assistant: ${m.content}`,
+      )
+      .join('\n\n');
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages,
+    const q = query({
+      prompt: conversationPrompt,
+      options: {
+        model: 'sonnet',
+        maxTurns: 1,
+        systemPrompt: SYSTEM_PROMPT,
+        allowedTools: [],
+      },
     });
 
-    const reply = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n');
+    let reply = '';
+    for await (const msg of q) {
+      if (msg.type === 'assistant' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text') {
+            reply += block.text;
+          }
+        }
+      }
+    }
 
     return res.status(200).json({ reply });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Claude API error:', errorMessage);
+    console.error('Claude SDK error:', errorMessage);
 
     if (errorMessage.includes('rate_limit')) {
       return res.status(429).json({ error: 'Rate limited — please wait a moment and try again.' });
     }
-    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-      return res.status(504).json({ error: 'Request timed out — the knowledge base is large, please try again.' });
-    }
 
-    return res.status(500).json({ error: 'Failed to get response from Claude' });
+    return res.status(500).json({ error: 'Failed to get response from Claude', detail: errorMessage });
   }
 }
