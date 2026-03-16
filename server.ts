@@ -2,7 +2,7 @@ import { createServer, IncomingMessage } from 'http';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { RESEARCH_DOCS } from './api/research-context.js';
 
-const SYSTEM_PROMPT = `You are Triveda's research assistant — an expert on the entire Triveda product exploration knowledge base (28 documents, ~100K words of research).
+const SYSTEM_PROMPT = `You are Triveda's research assistant — an expert on the Triveda product exploration knowledge base (consolidated from 28 documents into a structured reference).
 
 ## Your Role
 You help teammates, advisors, and stakeholders understand the Triveda product direction by answering questions grounded in the research documents below.
@@ -75,7 +75,7 @@ const server = createServer(async (req, res) => {
     const q = query({
       prompt: conversationPrompt,
       options: {
-        model: 'sonnet',
+        model: 'opus',
         maxTurns: 1,
         systemPrompt: SYSTEM_PROMPT,
         allowedTools: [],
